@@ -36,20 +36,20 @@ const LUNACY_MODES: Record<string, number> = {
 export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = false, spsMode = false }: CarProps) {
   // Load the model - Using the downloaded Tesla Model 3
   const { scene, nodes, materials } = useGLTF(
-    '/tesla/2023_tesla_model_3_performance.glb'
+    `${import.meta.env.BASE_URL}tesla/2023_tesla_model_3_performance.glb`
   ) as unknown as GLTFResult;
 
   // Custom Texture Loading
   const [customTexture, setCustomTexture] = useState<THREE.Texture | null>(null);
-  
+
   useEffect(() => {
     if (lunacyMaterial && lunacyMaterial.startsWith('http')) {
-        new THREE.TextureLoader().load(lunacyMaterial, (tex) => {
-            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-            setCustomTexture(tex);
-        });
+      new THREE.TextureLoader().load(lunacyMaterial, (tex) => {
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        setCustomTexture(tex);
+      });
     } else {
-        setCustomTexture(null);
+      setCustomTexture(null);
     }
   }, [lunacyMaterial]);
 
@@ -57,17 +57,17 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
   const wheels = useMemo(() => {
     const wheelMeshes: THREE.Object3D[] = [];
     if (!scene) return wheelMeshes;
-    
+
     scene.traverse((child) => {
       // Look for objects that seem to be main wheel containers or meshes
       // "Wheel" is standard. We avoid "steering_wheel" if possible.
       const name = child.name.toLowerCase();
       if (name.includes('wheel') && !name.includes('steering')) {
-         // Check if it's a mesh or a group that holds the wheel
-         // For this specific model, we might need to experiment, but usually rotating the mesh works
-         if ((child as THREE.Mesh).isMesh) {
-            wheelMeshes.push(child);
-         }
+        // Check if it's a mesh or a group that holds the wheel
+        // For this specific model, we might need to experiment, but usually rotating the mesh works
+        if ((child as THREE.Mesh).isMesh) {
+          wheelMeshes.push(child);
+        }
       }
     });
     return wheelMeshes;
@@ -82,23 +82,23 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
   // Find the body material
   const bodyMaterial = useMemo(() => {
     if (!materials || !scene) return undefined;
-    
+
     // In this specific model, there might be multiple materials that need to be painted
     // or the naming is very specific.
     // Instead of finding just one, let's find ALL materials that look like paint
     // and return the first one as the "primary" for animation, but apply changes to all.
-    
+
     let primaryMat: THREE.Material | undefined;
     const paintMaterials: THREE.Material[] = [];
-    
+
     // Helper to check if a material name sounds like paint
     const isPaint = (name: string) => {
       const n = name.toLowerCase();
-      return n.includes('paint') || 
-             n.includes('body') || 
-             n.includes('metal') || 
-             n.includes('exterior') ||
-             n.includes('color');
+      return n.includes('paint') ||
+        n.includes('body') ||
+        n.includes('metal') ||
+        n.includes('exterior') ||
+        n.includes('color');
     };
 
     // 1. Search in materials object
@@ -108,7 +108,7 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
         if (!primaryMat) primaryMat = mat;
       }
     });
-    
+
     // 2. Traverse scene if we didn't find enough
     if (paintMaterials.length === 0) {
       scene.traverse((child) => {
@@ -116,20 +116,20 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
           const m = child as THREE.Mesh;
           const mat = m.material as THREE.Material;
           if (isPaint(m.name) || isPaint(mat.name)) {
-             if (!paintMaterials.includes(mat)) {
-               paintMaterials.push(mat);
-               if (!primaryMat) primaryMat = mat;
-             }
+            if (!paintMaterials.includes(mat)) {
+              paintMaterials.push(mat);
+              if (!primaryMat) primaryMat = mat;
+            }
           }
         }
       });
     }
-    
+
     // Attach the list to the primary material so we can access it in useFrame
     if (primaryMat) {
       (primaryMat as any)._linkedMaterials = paintMaterials;
     }
-    
+
     return primaryMat as THREE.MeshStandardMaterial;
   }, [materials, scene]);
 
@@ -140,36 +140,36 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
         // Ensure we reset these if switching away from fluorescent
         mat.emissive = new THREE.Color(0, 0, 0);
         mat.emissiveIntensity = 0;
-        
+
         // Inject shader for Iridescence
         mat.onBeforeCompile = (shader) => {
-            mat.userData.shader = shader;
-            shader.uniforms.uTime = { value: 0 };
-            shader.uniforms.uBaseColor = { value: new THREE.Color(color) };
-            shader.uniforms.uSecondaryColor = { value: new THREE.Color(secondaryColor || color) };
-            shader.uniforms.uIridescent = { value: finish === 'iridescent' ? 1.0 : 0.0 };
-            shader.uniforms.uFluorescent = { value: finish === 'fluorescent' ? 1.0 : 0.0 };
-            shader.uniforms.uLunacyMode = { value: 0 };
-            shader.uniforms.uCustomTexture = { value: null };
+          mat.userData.shader = shader;
+          shader.uniforms.uTime = { value: 0 };
+          shader.uniforms.uBaseColor = { value: new THREE.Color(color) };
+          shader.uniforms.uSecondaryColor = { value: new THREE.Color(secondaryColor || color) };
+          shader.uniforms.uIridescent = { value: finish === 'iridescent' ? 1.0 : 0.0 };
+          shader.uniforms.uFluorescent = { value: finish === 'fluorescent' ? 1.0 : 0.0 };
+          shader.uniforms.uLunacyMode = { value: 0 };
+          shader.uniforms.uCustomTexture = { value: null };
 
-            // Add uniforms
-            // Note: vViewPosition is already declared in MeshStandardMaterial
-            
-            // We need to ensure vViewPosition is set if it's not already in the standard shader
-            // MeshStandardMaterial usually has it, but let's be safe by hooking into the end of main
-            // Actually, standard material defines vViewPosition in the prefix if needed.
-            // Let's just use the standard <project_vertex> chunk which sets mvPosition, 
-            // and then set vViewPosition = -mvPosition.xyz;
-            
-            shader.vertexShader = shader.vertexShader.replace(
-              '#include <project_vertex>',
-              `
+          // Add uniforms
+          // Note: vViewPosition is already declared in MeshStandardMaterial
+
+          // We need to ensure vViewPosition is set if it's not already in the standard shader
+          // MeshStandardMaterial usually has it, but let's be safe by hooking into the end of main
+          // Actually, standard material defines vViewPosition in the prefix if needed.
+          // Let's just use the standard <project_vertex> chunk which sets mvPosition, 
+          // and then set vViewPosition = -mvPosition.xyz;
+
+          shader.vertexShader = shader.vertexShader.replace(
+            '#include <project_vertex>',
+            `
               #include <project_vertex>
               vViewPosition = -mvPosition.xyz;
               `
-            );
+          );
 
-            shader.fragmentShader = `
+          shader.fragmentShader = `
               uniform float uTime;
               uniform float uIridescent;
               uniform float uFluorescent;
@@ -233,9 +233,9 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
               ${shader.fragmentShader}
             `;
 
-            shader.fragmentShader = shader.fragmentShader.replace(
-              '#include <color_fragment>',
-              `
+          shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <color_fragment>',
+            `
               #include <color_fragment>
               
               // --- LUNACY MODES ---
@@ -330,20 +330,20 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
                   diffuseColor.rgb = mix(uBaseColor, uSecondaryColor, mixFactor);
               }
               `
-            );
+          );
 
-            // Removed old dithering_fragment injection to prevent conflict
-            /* 
-            shader.fragmentShader = shader.fragmentShader.replace(
-              '#include <dithering_fragment>',
-              ...
-            );
-            */
-            
-            // Keep fluorescent injection at the end as it's an emissive effect
-            shader.fragmentShader = shader.fragmentShader.replace(
-              '#include <dithering_fragment>',
-              `
+          // Removed old dithering_fragment injection to prevent conflict
+          /* 
+          shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <dithering_fragment>',
+            ...
+          );
+          */
+
+          // Keep fluorescent injection at the end as it's an emissive effect
+          shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <dithering_fragment>',
+            `
               #include <dithering_fragment>
               
               // Fluorescent Effect (Glow)
@@ -353,14 +353,14 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
                   gl_FragColor.rgb *= 1.2; 
               }
               `
-            );
+          );
         };
-        
+
         // Trigger recompile
         mat.needsUpdate = true;
       });
     }
-    
+
     // Fix for windows/glass transparency
     Object.values(materials).forEach(m => {
       if (m.name.toLowerCase().includes('glass') || m.name.toLowerCase().includes('window')) {
@@ -368,7 +368,7 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
         m.opacity = 0.3;
         (m as THREE.MeshStandardMaterial).roughness = 0;
         if ((m as THREE.MeshStandardMaterial).color) {
-            (m as THREE.MeshStandardMaterial).color.set('black');
+          (m as THREE.MeshStandardMaterial).color.set('black');
         }
         m.side = THREE.DoubleSide;
       }
@@ -378,9 +378,9 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
     Object.entries(materials).forEach(([name, m]) => {
       // Make rims and tires black
       if (
-        name.toLowerCase().includes('tire') || 
-        name.toLowerCase().includes('rubber') || 
-        name.toLowerCase().includes('wheel') || 
+        name.toLowerCase().includes('tire') ||
+        name.toLowerCase().includes('rubber') ||
+        name.toLowerCase().includes('wheel') ||
         name.toLowerCase().includes('rim') ||
         name.toLowerCase().includes('chrome') // Often rims are chrome, let's black them out for "Performance" look
       ) {
@@ -394,40 +394,40 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
   useFrame((state, delta) => {
     if (bodyMaterial && (bodyMaterial as any)._linkedMaterials) {
       const linkedMats = (bodyMaterial as any)._linkedMaterials as THREE.MeshStandardMaterial[];
-      
+
       linkedMats.forEach(mat => {
         let targetColor = new THREE.Color(color);
         let targetSecondaryColor = new THREE.Color(secondaryColor || color);
 
         // Update shader uniforms if available
         if (mat.userData.shader) {
-            mat.userData.shader.uniforms.uBaseColor.value.copy(targetColor);
-            mat.userData.shader.uniforms.uSecondaryColor.value.copy(targetSecondaryColor);
-            mat.userData.shader.uniforms.uIridescent.value = finish === 'iridescent' ? 1.0 : 0.0;
-            mat.userData.shader.uniforms.uFluorescent.value = finish === 'fluorescent' ? 1.0 : 0.0;
-            
-            // Determine Lunacy Mode
-            let lunacyMode = 0;
-            if (finish === 'lunacy') {
-                if (customTexture) {
-                    lunacyMode = 7;
-                    mat.userData.shader.uniforms.uCustomTexture.value = customTexture;
-                } else if (lunacyMaterial && LUNACY_MODES[lunacyMaterial]) {
-                    lunacyMode = LUNACY_MODES[lunacyMaterial];
-                }
+          mat.userData.shader.uniforms.uBaseColor.value.copy(targetColor);
+          mat.userData.shader.uniforms.uSecondaryColor.value.copy(targetSecondaryColor);
+          mat.userData.shader.uniforms.uIridescent.value = finish === 'iridescent' ? 1.0 : 0.0;
+          mat.userData.shader.uniforms.uFluorescent.value = finish === 'fluorescent' ? 1.0 : 0.0;
+
+          // Determine Lunacy Mode
+          let lunacyMode = 0;
+          if (finish === 'lunacy') {
+            if (customTexture) {
+              lunacyMode = 7;
+              mat.userData.shader.uniforms.uCustomTexture.value = customTexture;
+            } else if (lunacyMaterial && LUNACY_MODES[lunacyMaterial]) {
+              lunacyMode = LUNACY_MODES[lunacyMaterial];
             }
-            mat.userData.shader.uniforms.uLunacyMode.value = lunacyMode;
-            
-            mat.userData.shader.uniforms.uTime.value = state.clock.getElapsedTime();
+          }
+          mat.userData.shader.uniforms.uLunacyMode.value = lunacyMode;
+
+          mat.userData.shader.uniforms.uTime.value = state.clock.getElapsedTime();
         }
 
         // Smoothly animate color (base color)
         easing.dampC(mat.color, targetColor, 0.25, delta);
-        
+
         // Smoothly animate material properties
         easing.damp(mat, 'roughness', roughness, 0.25, delta);
         easing.damp(mat, 'metalness', metalness, 0.25, delta);
-        
+
         if ('clearcoat' in mat) {
           // @ts-ignore
           easing.damp(mat, 'clearcoat', clearcoat, 0.25, delta);
@@ -441,7 +441,7 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
     if (moving) {
       wheels.forEach(wheel => {
         // Rotate around X axis (standard for GLTF cars)
-        wheel.rotation.x -= delta * (spsMode ? 60 : 20); 
+        wheel.rotation.x -= delta * (spsMode ? 60 : 20);
       });
     }
   });
@@ -449,11 +449,11 @@ export function Car({ color, secondaryColor, finish, lunacyMaterial, moving = fa
   // Adjust rotation and scale for this specific Tesla model
   // Lift the car up on the Y axis to sit on the floor (0.75 is an estimate based on wheel radius)
   if (!scene) return null;
-  
+
   return <primitive object={scene} rotation={[0, spsMode ? Math.PI : Math.PI / 1.2, 0]} scale={1} position={[0, 0.75, 0]} />;
 }
 
 // Preload the model
-useGLTF.preload('/tesla/2023_tesla_model_3_performance.glb');
+useGLTF.preload(`${import.meta.env.BASE_URL}tesla/2023_tesla_model_3_performance.glb`);
 
 
